@@ -2,3 +2,4 @@ discord.py
 google-generativeai
 edge_tts
 flask
+PyNaCl

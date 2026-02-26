@@ -5,36 +5,38 @@ from flask import Flask
 from threading import Thread
 import os
 
-# --- 1. سيرفر ويب وهمي لمنع إغلاق البوت على Render ---
+# --- 1. إنشاء سيرفر ويب بسيط لإبقاء البوت متصلاً ---
+# هذا الجزء ضروري لأن Render يغلق البرامج التي لا تحتوي على رابط ويب (HTTP)
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "البوت متصل ويعمل بنجاح!"
+    return "البوت يعمل بنجاح!"
 
 def run():
-    # تشغيل السيرفر على بورت 8080 وهو المفضل لـ Render
+    # تشغيل السيرفر على البورت الذي يطلبه موقع Render
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- 2. إعدادات بوت الديسكورد ---
+# --- 2. إعدادات بوت الديسكورد العربي ---
 intents = discord.Intents.default()
-intents.message_content = True  # لقراءة الرسائل والأوامر
+intents.message_content = True  # تفعيل خاصية قراءة الرسائل للأوامر
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'✅ تم تسجيل الدخول بنجاح باسم: {bot.user}')
+    print(f'✅ تم تشغيل البوت بنجاح باسم: {bot.user}')
 
 @bot.command()
 async def فحص(ctx, link: str):
-    """أمر لفحص سيرفرات FiveM عن طريق الرابط أو الكود"""
-    # استخراج كود السيرفر من الرابط (مثل bokeep)
+    """أمر فحص سيرفرات FiveM: !فحص [الرابط أو الكود]"""
+    # استخراج كود السيرفر من نهاية الرابط
     server_code = link.split('/')[-1]
     
+    # الرابط الرسمي لـ API الخاص بـ FiveM لجلب البيانات
     url = f"https://servers-frontend.fivem.net/api/servers/single/{server_code}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -45,48 +47,46 @@ async def فحص(ctx, link: str):
         if response.status_code == 200:
             data = response.json()['Data']
             
-            # تصميم الرسالة (Embed) لتشبه الصورة التي أرفقتها
-            embed = discord.Embed(title=f"🌐 {data.get('hostname', 'سيرفر FiveM')[:50]}", color=0x2f3136)
+            # بناء الرسالة (Embed) بشكل احترافي يشبه طلبك الأصلي
+            embed = discord.Embed(
+                title=f"🌐 {data.get('hostname', 'سيرفر FiveM')[:50]}", 
+                color=0x2b2d31
+            )
             
-            # الآي بي
-            ip = data['connectEndPoints'][0]
-            embed.add_field(name="💀 Server IP 💀", value=f"`{ip}`", inline=False)
+            # استخراج الـ IP المباشر
+            ip_address = data['connectEndPoints'][0]
             
-            # الاستضافة والدولة
+            embed.add_field(name="💀 Server IP 💀", value=f"`{ip_address}`", inline=False)
             embed.add_field(name="⚠️ ISP ⚠️", value=data.get('ownerName', 'غير معروف'), inline=True)
             embed.add_field(name="🚩 Country 🚩", value=data['vars'].get('locale', 'Unknown'), inline=True)
+            embed.add_field(name="👤 Players 👤", value=f"{data.get('clients', 0)} / {data.get('sv_maxclients', 0)}", inline=False)
             
-            # اللاعبين
-            clients = data.get('clients', 0)
-            max_clients = data.get('sv_maxclients', 0)
-            embed.add_field(name="👤 Players 👤", value=f"{clients} / {max_clients}", inline=False)
-            
-            # روابط إضافية
-            info_links = (
-                f"/players.json: [Click Me](http://{ip}/players.json)\n"
-                f"/info.json: [Click Me](http://{ip}/info.json)\n"
-                f"/dynamic.json: [Click Me](http://{ip}/dynamic.json)"
+            # روابط الملفات التقنية (JSON)
+            json_links = (
+                f"/players.json: [اضغط هنا](http://{ip_address}/players.json)\n"
+                f"/info.json: [اضغط هنا](http://{ip_address}/info.json)\n"
+                f"/dynamic.json: [اضغط هنا](http://{ip_address}/dynamic.json)"
             )
-            embed.add_field(name="🔗 Other Information 🔗", value=info_links, inline=False)
+            embed.add_field(name="🔗 معلومات إضافية 🔗", value=json_links, inline=False)
             
-            embed.set_footer(text="تم الفحص بواسطة بوت CFX العربي")
+            embed.set_footer(text="تم الفحص بواسطة King Bot")
             
             await ctx.send(embed=embed)
         else:
-            await ctx.send("❌ عذراً، لم أستطع العثور على معلومات هذا السيرفر. تأكد من الكود.")
+            await ctx.send("❌ لم أتمكن من العثور على السيرفر، تأكد من صحة الرابط أو الكود.")
     except Exception as e:
-        await ctx.send(f"⚠️ حدث خطأ تقني أثناء جلب البيانات.")
+        await ctx.send("⚠️ حدث خطأ تقني أثناء محاولة جلب البيانات.")
 
-# --- 3. تشغيل البوت ---
+# --- 3. تشغيل النظام بالكامل ---
 if __name__ == "__main__":
-    # تشغيل سيرفر الويب أولاً
+    # تشغيل سيرفر الويب في الخلفية
     keep_alive()
     
-    # جلب التوكن من Environment Variables في موقع Render
-    # تأكد أنك سميت المتغير في Render باسم BOT_TOKEN
+    # جلب التوكن من إعدادات Render (Environment Variables)
+    # تأكد أنك أضفت متغير باسم BOT_TOKEN في موقع Render
     token = os.environ.get('BOT_TOKEN')
     
     if token:
         bot.run(token)
     else:
-        print("❌ خطأ: لم يتم العثور على BOT_TOKEN في إعدادات Render!")
+        print("❌ خطأ: لم يتم العثور على التوكن (BOT_TOKEN) في إعدادات الموقع!")

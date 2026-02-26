@@ -7,7 +7,7 @@ from flask import Flask
 from threading import Thread
 import os
 
-# --- 1. سيرفر ويب للبقاء متصلاً ---
+# --- 1. سيرفر ويب للبقاء متصلاً على Render ---
 app = Flask('')
 @app.route('/')
 def home(): return "King Bot is Live!"
@@ -27,30 +27,48 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-# --- 3. نافذة اللاعبين التفاعلية ---
-class PlayersView(View):
-    def __init__(self, players_data):
+# --- 3. نافذة الأزرار التفاعلية (اللاعبين + الصور + الروابط) ---
+class ServerView(View):
+    def __init__(self, players_data, ip, banner_url, icon_url):
         super().__init__(timeout=None)
         self.players_data = players_data
+        self.ip = ip
+        self.banner_url = banner_url
+        self.icon_url = icon_url
 
-    @discord.ui.button(label="👤 إظهار قائمة اللاعبين والأيديات", style=discord.ButtonStyle.green, emoji="🔍")
+    # زر إظهار اللاعبين
+    @discord.ui.button(label="👥 اللاعبين", style=discord.ButtonStyle.gray)
     async def show_players(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.players_data:
-            return await interaction.response.send_message("❌ لا يوجد لاعبين متصلين حالياً.", ephemeral=True)
-        
-        header = "🆔 | الاسم | Steam ID\n" + "—"*35 + "\n"
-        lines = [f"[{p.get('id')}] {p.get('name')[:15]} | {next((id for id in p.get('identifiers', []) if 'steam' in id), 'N/A').replace('steam:', '')}" for p in self.players_data[:30]]
-        
-        output = header + "\n".join(lines)
-        if len(self.players_data) > 30: output += f"\n... و {len(self.players_data) - 30} آخرين."
-        await interaction.response.send_message(f"```txt\n{output}```", ephemeral=True)
+            return await interaction.response.send_message("❌ لا يوجد لاعبين متصلين.", ephemeral=True)
+        header = "🆔 | الاسم | Steam ID\n" + "—"*30 + "\n"
+        lines = [f"[{p.get('id')}] {p.get('name')[:15]} | {next((id for id in p.get('identifiers', []) if 'steam' in id), 'N/A').replace('steam:', '')}" for p in self.players_data[:25]]
+        await interaction.response.send_message(f"```txt\n{header +  '\\n'.join(lines)}```", ephemeral=True)
+
+    # زر روابط الـ JSON (السكربتات)
+    @discord.ui.button(label="📜 ملفات السيرفر", style=discord.ButtonStyle.gray)
+    async def show_json(self, interaction: discord.Interaction, button: discord.ui.Button):
+        content = (
+            f"🔗 **روابط البيانات المباشرة:**\n"
+            f"🔹 `players.json`: [اضغط هنا](http://{self.ip}/players.json)\n"
+            f"🔹 `info.json`: [اضغط هنا](http://{self.ip}/info.json)\n"
+            f"🔹 `dynamic.json`: [اضغط هنا](http://{self.ip}/dynamic.json)"
+        )
+        await interaction.response.send_message(content, ephemeral=True)
+
+    # زر عرض الصور (لوقو وبانر)
+    @discord.ui.button(label="🖼️ صور السيرفر", style=discord.ButtonStyle.gray)
+    async def show_images(self, interaction: discord.Interaction, button: discord.ui.Button):
+        content = f"🖼️ **روابط الصور الأصلية:**\n"
+        if self.icon_url: content += f"🔹 [اضغط هنا لمشاهدة اللوقو]({self.icon_url})\n"
+        if self.banner_url: content += f"🔹 [اضغط هنا لمشاهدة البانر]({self.banner_url})"
+        await interaction.response.send_message(content, ephemeral=True)
 
 # --- 4. أمر السلاش /فحص ---
-@bot.tree.command(name="فحص", description="فحص شامل للسيرفر مع صورة البانر الأصلية")
+@bot.tree.command(name="فحص", description="فحص شامل (لاعبين، صور، ملفات JSON)")
 @app_commands.describe(link="رابط السيرفر أو كود الـ CFX")
 async def check(interaction: discord.Interaction, link: str):
     await interaction.response.defer()
-    
     server_code = link.split('/')[-1]
     url = f"https://servers-frontend.fivem.net/api/servers/single/{server_code}"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -61,34 +79,28 @@ async def check(interaction: discord.Interaction, link: str):
             data = response.json()['Data']
             vars = data.get('vars', {})
             ip = data['connectEndPoints'][0]
+            banner_url = vars.get('banner_detail')
+            icon_url = f"https://servers-live.fivem.net/servers/icon/{server_code}.png"
             
-            embed = discord.Embed(title=f"🏰 {data.get('hostname', 'Server')[:50]}", color=0x2b2d31)
-
-            # --- هنا التعديل: جلب صورة البانر الأصلية التي وضعها صاحب السيرفر ---
-            banner_url = vars.get('banner_detail') # هذا هو الرابط الرسمي للبانر
-            if banner_url:
-                embed.set_image(url=banner_url) # وضع الصورة في أسفل الرسالة
+            embed = discord.Embed(title=f"🌐 {data.get('hostname', 'Server')[:50]}", color=0x2b2d31)
             
-            # وضع الأيقونة الصغيرة في الزاوية
-            embed.set_thumbnail(url=f"https://servers-live.fivem.net/servers/icon/{server_code}.png")
+            # عرض البانر واللوقو في الرسالة الأساسية
+            if banner_url: embed.set_image(url=banner_url)
+            embed.set_thumbnail(url=icon_url)
 
-            # الحقول المعلوماتية
+            # معلومات السيرفر الأساسية
             embed.add_field(name="💀 Server IP", value=f"`{ip}`", inline=False)
-            embed.add_field(name="👥 اللاعبين", value=f"🟢 `{data['clients']}` / 🔴 `{data['sv_maxclients']}`", inline=True)
-            embed.add_field(name="🔑 صاحب السيرفر", value=f"[{data.get('ownerName', 'Unknown')}](https://forum.cfx.re/u/{data.get('ownerName')})", inline=True)
+            embed.add_field(name="👥 المتصلين", value=f"`{data['clients']} / {data['sv_maxclients']}`", inline=True)
+            embed.add_field(name="💎 الدعم", value=f"`{vars.get('sv_premium', 'Basic').upper()}`", inline=True)
             
-            # معلومات الرست
-            rest_info = next((tag for tag in data.get('tags', []) if 'restart' in tag.lower()), "غير محدد")
-            embed.add_field(name="🔄 جدولة الرست", value=f"`{rest_info}`", inline=False)
-
-            embed.set_footer(text="King Bot • تم سحب صورة السيرفر الأصلية")
+            embed.set_footer(text="King Bot • استخدم الأزرار أدناه للمزيد من التفاصيل")
             
-            view = PlayersView(data.get('players', []))
+            view = ServerView(data.get('players', []), ip, banner_url, icon_url)
             await interaction.followup.send(embed=embed, view=view)
         else:
-            await interaction.followup.send("❌ السيرفر غير موجود.")
+            await interaction.followup.send("❌ تعذر العثور على السيرفر.")
     except:
-        await interaction.followup.send("⚠️ خطأ في جلب البيانات.")
+        await interaction.followup.send("⚠️ حدث خطأ في الاتصال.")
 
 if __name__ == "__main__":
     keep_alive()
